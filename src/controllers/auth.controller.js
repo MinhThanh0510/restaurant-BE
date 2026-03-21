@@ -8,11 +8,21 @@ exports.register = async (req, res) => {
     const { fullName, email, password, phone } = req.body;
 
     // Check email
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
+    const existingEmail = await User.findOne({ email });
+    if (existingEmail) {
       return res.status(400).json({
-        message: "Email already registered",
+        message: "Email already exists",
       });
+    }
+
+    // Check phone (NẾU người dùng CÓ nhập số điện thoại)
+    if (phone) {
+      const existingPhone = await User.findOne({ phone });
+      if (existingPhone) {
+        return res.status(400).json({
+          message: "Phone Number already exists",
+        });
+      } 
     }
 
     // Hash password

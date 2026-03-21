@@ -24,9 +24,20 @@ exports.createPreorder = async (req, res) => {
       });
     }
 
-    if (reservation.userId.toString() !== req.user.id) {
+    // 1. Ép kiểu cả 2 về String chuẩn để không bao giờ so sánh xịt
+    const currentUserId = String(req.user?.id || req.user?._id);
+    const ownerId = String(reservation.userId);
+
+    // 2. Log ra terminal để kiểm tra xem 2 cái ID này rốt cuộc là số mấy
+    console.log("=== CHECK QUYỀN PREORDER ===");
+    console.log("ID người đang thao tác:", currentUserId);
+    console.log("ID chủ nhân bàn đặt:", ownerId);
+
+    // 3. So sánh
+    if (ownerId !== currentUserId) {
       return res.status(403).json({
         message: "You cannot preorder for this reservation",
+        debug: { ownerId, currentUserId } // Gắn debug thẳng vào lỗi
       });
     }
 

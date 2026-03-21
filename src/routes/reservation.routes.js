@@ -34,6 +34,14 @@ router.put(
   reservationController.cancelReservation
 );
 
+// ================= DELETE RESERVATION =================
+router.delete(
+  "/:id",
+  verifyToken,
+  authorizeRoles("customer", "admin"), // Cho phép cả Customer và Admin
+  reservationController.deleteReservation
+);
+
 
 // ================= ADMIN GET ALL RESERVATIONS =================
 router.get(

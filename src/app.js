@@ -11,6 +11,7 @@ const reservationRoutes = require("./routes/reservation.routes");
 const menuRoutes = require("./routes/menu.routes");
 const preorderRoutes = require("./routes/preorder.routes");
 const paymentRoutes = require("./routes/payment.routes");
+const reviewRoutes = require("./routes/review.routes");
 
 const app = express();
 
@@ -34,6 +35,7 @@ app.use("/api/reservations", reservationRoutes); // đặt bàn
 app.use("/api/menus", menuRoutes);            // menu
 app.use("/api/preorders", preorderRoutes);    // đặt món trước
 app.use("/api/payments", paymentRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 
 // ================= ROOT ROUTE =================
