@@ -115,15 +115,16 @@ exports.createPreorder = async (req, res) => {
 // ================= GET PREORDER BY RESERVATION =================
 exports.getPreorderByReservation = async (req, res) => {
   try {
-
     const { reservationId } = req.params;
 
     const preorder = await Preorder.findOne({ reservationId })
       .populate("items.menuId", "name price image");
 
+    // 🔥 THAY ĐỔI Ở ĐÂY: KHÔNG TRẢ VỀ LỖI 404 NỮA
     if (!preorder) {
-      return res.status(404).json({
-        message: "Preorder not found",
+      return res.status(200).json({ // Trả về 200 (Thành công)
+        message: "No preorder found for this reservation",
+        preorder: { items: [], totalAmount: 0 } // Trả về object rỗng để FE hiển thị trơn tru
       });
     }
 

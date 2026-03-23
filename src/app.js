@@ -10,8 +10,9 @@ const tableRoutes = require("./routes/table.routes");
 const reservationRoutes = require("./routes/reservation.routes");
 const menuRoutes = require("./routes/menu.routes");
 const preorderRoutes = require("./routes/preorder.routes");
-const paymentRoutes = require("./routes/payment.routes");
 const reviewRoutes = require("./routes/review.routes");
+const categoryRoutes = require("./routes/category.routes");
+const inventoryRoutes = require("./routes/inventory.routes");
 
 const app = express();
 
@@ -34,8 +35,9 @@ app.use("/api/tables", tableRoutes);          // quản lý bàn
 app.use("/api/reservations", reservationRoutes); // đặt bàn
 app.use("/api/menus", menuRoutes);            // menu
 app.use("/api/preorders", preorderRoutes);    // đặt món trước
-app.use("/api/payments", paymentRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/inventory", inventoryRoutes);
 
 
 // ================= ROOT ROUTE =================

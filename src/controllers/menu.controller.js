@@ -12,7 +12,7 @@ exports.getAllMenus = async (req, res) => {
       const menus = await Menu.find({
         categoryId: category._id,
         isAvailable: true,
-      });
+      }).populate("ingredients.ingredientId", "name");
 
       result.push({
         categoryId: category._id,
@@ -26,6 +26,27 @@ exports.getAllMenus = async (req, res) => {
       data: result,
     });
 
+  } catch (error) {
+    res.status(500).json({
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+// ================= GET ALL MENUS (ADMIN) =================
+exports.getAllAdminMenus = async (req, res) => {
+  try {
+    // Lấy tất cả món ăn (kể cả hết hàng), xuất ra mảng phẳng, kèm tên danh mục
+    const menus = await Menu.find()
+      .populate("categoryId", "name")
+      .populate("ingredients.ingredientId", "name")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      message: "Get all menus for admin successfully",
+      menus,
+    });
   } catch (error) {
     res.status(500).json({
       message: "Server error",
@@ -76,7 +97,7 @@ exports.getMenuDetail = async (req, res) => {
 
     const menu = await Menu.findById(id)
       .populate("categoryId", "name")
-      // .populate("ingredients.ingredientId", "name quantity")
+      .populate("ingredients.ingredientId", "name");
 
     if (!menu) {
       return res.status(404).json({
@@ -110,8 +131,8 @@ exports.getMenuDetail = async (req, res) => {
 // ================= CREATE MENU (ADMIN) =================
 exports.createMenu = async (req, res) => {
   try {
-
-    const { name, description, price, image, categoryId } = req.body;
+    // 🔥 FIX: Thêm ingredients và isAvailable vào mảng bóc tách
+    const { name, description, price, image, categoryId, ingredients, isAvailable } = req.body;
 
     if (!name || !price || !categoryId) {
       return res.status(400).json({
@@ -125,14 +146,14 @@ exports.createMenu = async (req, res) => {
       price,
       image,
       categoryId,
-      isAvailable: true,
+      isAvailable: isAvailable !== undefined ? isAvailable : true, // 🔥 Lấy trạng thái từ form
+      ingredients: ingredients || [], // 🔥 Lưu mảng nguyên liệu vào Database
     });
 
     res.status(201).json({
       message: "Menu created successfully",
       menu,
     });
-
   } catch (error) {
     res.status(500).json({
       message: "Server error",

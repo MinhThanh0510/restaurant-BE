@@ -51,5 +51,7 @@ router.get(
   reservationController.getAllReservations
 );
 
+router.put("/admin/:id/status", verifyToken, authorizeRoles("admin"), reservationController.updateReservationStatus);
+
 
 module.exports = router;

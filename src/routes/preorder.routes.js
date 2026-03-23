@@ -11,7 +11,7 @@ const { verifyToken, authorizeRoles } = require("../middlewares/auth.middleware"
 router.post("/", verifyToken, preorderController.createPreorder);
 
 // lấy preorder theo reservation
-router.get("/:reservationId", verifyToken, preorderController.getPreorderByReservation);
+router.get("/reservation/:reservationId", verifyToken, preorderController.getPreorderByReservation);
 
 
 // ================= ADMIN =================
