@@ -61,7 +61,6 @@ exports.createReservation = async (req, res) => {
     let preorderTotal = 0;
 
     if (preorderItems && preorderItems.length > 0) {
-      // Duyệt qua từng món ăn khách đặt
       for (const item of preorderItems) {
         const menu = await Menu.findById(item.menuId).populate("ingredients.ingredientId");
 
@@ -74,7 +73,6 @@ exports.createReservation = async (req, res) => {
         const subtotal = menu.price * item.quantity;
         preorderTotal += subtotal;
 
-        // Xử lý trừ nguyên liệu trong kho
         if (menu.ingredients && menu.ingredients.length > 0) {
           for (const ing of menu.ingredients) {
             if (!ing.ingredientId) {
@@ -86,21 +84,19 @@ exports.createReservation = async (req, res) => {
             const inventoryItem = ing.ingredientId;
             const requiredQuantity = ing.quantity * item.quantity;
 
-            // Kiểm tra số lượng tồn kho trước
             if (inventoryItem.quantity < requiredQuantity) {
               return res.status(400).json({
                 message: `Not enough ${inventoryItem.name} in inventory to make ${menu.name}`,
               });
             }
 
-            // Thực hiện trừ kho trực tiếp
             const updatedInventory = await Inventory.findOneAndUpdate(
               {
                 _id: inventoryItem._id,
-                quantity: { $gte: requiredQuantity } // Make sure no other request took it
+                quantity: { $gte: requiredQuantity }
               },
               {
-                $inc: { quantity: -requiredQuantity } // Trừ đi số lượng
+                $inc: { quantity: -requiredQuantity }
               },
               { new: true }
             );
@@ -113,7 +109,6 @@ exports.createReservation = async (req, res) => {
           }
         }
 
-        // Đẩy món ăn vào mảng preorder để lưu vào Reservation
         preorder.push({
           menuId: menu._id,
           quantity: item.quantity,
@@ -122,16 +117,18 @@ exports.createReservation = async (req, res) => {
       }
     }
 
-    // ===== TẠO ĐƠN ĐẶT BÀN =====
+    // ===== TẠO ĐƠN ĐẶT BÀN VÀ TÍNH TIỀN =====
     const bookingCode = "BK" + Date.now().toString().slice(-4) + Math.floor(Math.random() * 1000);
+
+    // 🔥 Lấy giá bàn tại thời điểm đặt (nếu ko có mặc định là 0)
+    const tablePrice = table.price || 0;
+    
+    // 🔥 Tổng tiền = Tiền đồ ăn + Tiền phụ thu bàn
+    const totalAmount = preorderTotal + tablePrice;
 
     const reservation = await Reservation.create({
       userId,
-      customerInfo: {
-        fullName,
-        phone,
-        email,
-      },
+      customerInfo: { fullName, phone, email },
       tableId: table._id,
       bookingCode,
       reservationDate: new Date(reservationDate),
@@ -139,8 +136,10 @@ exports.createReservation = async (req, res) => {
       endTime: end,
       numberOfGuests: guests,
       note: note || "",
-      preorder,       // Lưu danh sách món
-      preorderTotal,  // Lưu tổng tiền
+      preorder,
+      preorderTotal,
+      tablePrice,    // 🔥 Lưu giá bàn
+      totalAmount,   // 🔥 Lưu tổng thanh toán
       status: "pending",
     });
 
@@ -157,13 +156,12 @@ exports.createReservation = async (req, res) => {
   }
 };
 
-// ... Các hàm GET, CANCEL bên dưới của bạn giữ nguyên, KHÔNG CẦN THAY ĐỔI
 exports.getMyReservations = async (req, res) => {
   try {
     const userId = req.user.id;
     const reservations = await Reservation.find({ userId })
-      .populate("tableId")
-      // .populate("preorder.menuId", "name price image")
+      // 🔥 Lấy thêm location và price của bàn để hiển thị cho Khách hàng
+      .populate("tableId", "tableNumber capacity location price")
       .sort({ reservationDate: -1 });
 
     return res.status(200).json({
@@ -180,13 +178,10 @@ exports.getMyReservations = async (req, res) => {
   }
 };
 
-// ================= CANCEL RESERVATION =================
 exports.cancelReservation = async (req, res) => {
   try {
     const { id } = req.params;
-
     const currentUserId = String(req.user?.id || req.user?._id);
-
     const reservation = await Reservation.findById(id);
 
     if (!reservation) {
@@ -212,7 +207,6 @@ exports.cancelReservation = async (req, res) => {
       message: "Reservation cancelled successfully",
       reservation,
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
@@ -225,7 +219,8 @@ exports.getAllReservations = async (req, res) => {
   try {
     const reservations = await Reservation.find()
       .populate("userId", "fullName email")
-      .populate("tableId", "tableNumber capacity")
+      // 🔥 Lấy thêm location và price của bàn để hiển thị cho Admin
+      .populate("tableId", "tableNumber capacity location price")
       .sort({ reservationDate: -1 });
 
     return res.status(200).json({
@@ -241,22 +236,18 @@ exports.getAllReservations = async (req, res) => {
   }
 };
 
-// ================= DELETE RESERVATION (ONLY CANCELLED) =================
 exports.deleteReservation = async (req, res) => {
   try {
     const { id } = req.params;
     const currentUserId = String(req.user?.id || req.user?._id);
-
-    // 1. Tìm reservation
     const reservation = await Reservation.findById(id);
 
     if (!reservation) {
       return res.status(404).json({ message: "Reservation not found" });
     }
 
-    // 2. Kiểm tra quyền sở hữu (chỉ cho phép user tự xóa hoặc Admin xóa)
     const ownerId = String(reservation.userId);
-    const userRole = req.user?.role; // Giả sử trong req.user có chứa role
+    const userRole = req.user?.role;
 
     if (ownerId !== currentUserId && userRole !== "admin") {
       return res.status(403).json({
@@ -264,20 +255,17 @@ exports.deleteReservation = async (req, res) => {
       });
     }
 
-    // 3. Kiểm tra điều kiện xóa: Chỉ được xóa khi status là 'cancelled'
     if (reservation.status !== "cancelled") {
       return res.status(400).json({
         message: "Only cancelled reservations can be deleted",
       });
     }
 
-    // 4. Thực hiện xóa khỏi Database
     await Reservation.findByIdAndDelete(id);
 
     return res.status(200).json({
       message: "Reservation history deleted successfully",
     });
-
   } catch (error) {
     console.error("Delete Reservation Error:", error);
     return res.status(500).json({
@@ -287,7 +275,6 @@ exports.deleteReservation = async (req, res) => {
   }
 };
 
-// ================= ADMIN CẬP NHẬT TRẠNG THÁI =================
 exports.updateReservationStatus = async (req, res) => {
   try {
     const { id } = req.params;

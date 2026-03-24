@@ -11,6 +11,16 @@ const tableSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    // 🔥 THÊM 2 TRƯỜNG NÀY VÀO
+    location: {
+      type: String,
+      enum: ["indoor", "window", "outdoor"],
+      default: "indoor",
+    },
+    price: {
+      type: Number,
+      default: 0, // Giá phụ thu cho bàn (VD: Bàn window thêm 5$)
+    },
     status: {
       type: String,
       enum: ["available", "reserved", "maintenance"],
@@ -18,7 +28,7 @@ const tableSchema = new mongoose.Schema(
     },
   },
   {
-    timestamps: true, 
+    timestamps: true,
   }
 );
 

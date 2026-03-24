@@ -18,11 +18,11 @@ exports.getAllTables = async (req, res) => {
   }
 };
 
-
 // ================= CREATE TABLE (ADMIN) =================
 exports.createTable = async (req, res) => {
   try {
-    const { tableNumber, capacity } = req.body;
+    // 🔥 Thêm location và price vào đây
+    const { tableNumber, capacity, location, price } = req.body;
 
     if (!tableNumber || !capacity) {
       return res.status(400).json({
@@ -41,13 +41,14 @@ exports.createTable = async (req, res) => {
     const table = await Table.create({
       tableNumber,
       capacity,
+      location: location || "indoor",
+      price: price || 0,
     });
 
     return res.status(201).json({
       message: "Table created successfully",
       table,
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
@@ -55,7 +56,6 @@ exports.createTable = async (req, res) => {
     });
   }
 };
-
 
 // ================= UPDATE TABLE (ADMIN) =================
 exports.updateTable = async (req, res) => {
@@ -78,7 +78,6 @@ exports.updateTable = async (req, res) => {
       message: "Table updated successfully",
       table,
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
@@ -86,31 +85,6 @@ exports.updateTable = async (req, res) => {
     });
   }
 };
-
-exports.deleteTable = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const table = await Table.findByIdAndDelete(id);
-
-    if (!table) {
-      return res.status(404).json({
-        message: "Table not found",
-      });
-    }
-
-    return res.status(200).json({
-      message: "Table deleted successfully",
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
 
 // ================= DELETE TABLE (ADMIN) =================
 exports.deleteTable = async (req, res) => {
@@ -128,7 +102,6 @@ exports.deleteTable = async (req, res) => {
     return res.status(200).json({
       message: "Table deleted successfully",
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
@@ -137,6 +110,7 @@ exports.deleteTable = async (req, res) => {
   }
 };
 
+// ================= GET AVAILABLE TABLES (CUSTOMER/BOOKING) =================
 exports.getAvailableTables = async (req, res) => {
   try {
     const { date, time, guests } = req.query;
@@ -175,7 +149,6 @@ exports.getAvailableTables = async (req, res) => {
       total: tables.length,
       tables,
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
@@ -184,59 +157,7 @@ exports.getAvailableTables = async (req, res) => {
   }
 };
 
-exports.updateTable = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const table = await Table.findByIdAndUpdate(
-      id,
-      req.body,
-      { new: true }
-    );
-
-    if (!table) {
-      return res.status(404).json({
-        message: "Table not found",
-      });
-    }
-
-    return res.status(200).json({
-      message: "Table updated successfully",
-      table,
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
-exports.deleteTable = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const table = await Table.findByIdAndDelete(id);
-
-    if (!table) {
-      return res.status(404).json({
-        message: "Table not found",
-      });
-    }
-
-    return res.status(200).json({
-      message: "Table deleted successfully",
-    });
-
-  } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
-  }
-};
-
+// ================= GET TABLES AVAILABILITY (CUSTOMER/BOOKING) =================
 exports.getTablesAvailability = async (req, res) => {
   try {
     const { date, guests } = req.query;
@@ -247,19 +168,9 @@ exports.getTablesAvailability = async (req, res) => {
       });
     }
 
-    const Reservation = require("../models/Reservation");
-
     // khung giờ nhà hàng
     const timeSlots = [
-      "17:00",
-      "17:30",
-      "18:00",
-      "18:30",
-      "19:00",
-      "19:30",
-      "20:00",
-      "20:30",
-      "21:00",
+      "17:00", "17:30", "18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00",
     ];
 
     let tablesQuery = { status: "available" };
@@ -278,7 +189,6 @@ exports.getTablesAvailability = async (req, res) => {
     const result = [];
 
     for (const table of tables) {
-
       const tableReservations = reservations.filter(
         (r) => r.tableId.toString() === table._id.toString()
       );
@@ -286,7 +196,6 @@ exports.getTablesAvailability = async (req, res) => {
       const availableSlots = [];
 
       for (const slot of timeSlots) {
-
         const start = new Date(`${date}T${slot}:00`);
         const end = new Date(start.getTime() + 2.5 * 60 * 60 * 1000);
 
@@ -311,7 +220,6 @@ exports.getTablesAvailability = async (req, res) => {
       date,
       tables: result,
     });
-
   } catch (error) {
     return res.status(500).json({
       message: "Server error",
