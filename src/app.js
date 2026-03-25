@@ -13,6 +13,7 @@ const preorderRoutes = require("./routes/preorder.routes");
 const reviewRoutes = require("./routes/review.routes");
 const categoryRoutes = require("./routes/category.routes");
 const inventoryRoutes = require("./routes/inventory.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
 
 const app = express();
 
@@ -38,6 +39,7 @@ app.use("/api/preorders", preorderRoutes);    // đặt món trước
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/categories", categoryRoutes);
 app.use("/api/inventory", inventoryRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 
 // ================= ROOT ROUTE =================

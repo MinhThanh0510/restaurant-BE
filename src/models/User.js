@@ -2,6 +2,10 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
+
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
+    
     fullName: {
       type: String,
       required: true,
@@ -33,6 +37,7 @@ const userSchema = new mongoose.Schema(
       default: true,
     },
   },
+  
   { timestamps: true }
 );
 

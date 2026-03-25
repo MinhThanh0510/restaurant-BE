@@ -142,28 +142,46 @@ exports.deleteReview = async (req, res) => {
   }
 };
 
-// ================= ADMIN HIDE REVIEW =================
-exports.hideReview = async (req, res) => {
+// ================= SỬA LẠI: ADMIN TOGGLE HIDE REVIEW =================
+exports.toggleHideReview = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const review = await Review.findByIdAndUpdate(
-      id,
-      { isHidden: true },
-      { new: true }
-    );
+    const review = await Review.findById(id);
 
     if (!review) {
-      return res.status(404).json({
-        message: "Review not found",
-      });
+      return res.status(404).json({ message: "Review not found" });
     }
 
+    // 🔥 Đảo ngược trạng thái (Đang ẩn thì thành hiện, đang hiện thì thành ẩn)
+    review.isHidden = !review.isHidden; 
+    await review.save();
+
     res.json({
-      message: "Review hidden",
+      message: review.isHidden ? "Review has been hidden from public." : "Review is now visible to public.",
       review,
     });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
 
+// ================= THÊM MỚI: GET ALL REVIEWS (CHO ADMIN) =================
+exports.getAdminReviews = async (req, res) => {
+  try {
+    // Admin lấy toàn bộ, không lọc isHidden
+    const reviews = await Review.find()
+      .populate("userId", "fullName email")
+      .populate("reservationId", "bookingCode")
+      .sort({ createdAt: -1 });
+
+    const total = reviews.length;
+    const avgRating = total === 0 ? 0 : reviews.reduce((sum, r) => sum + r.rating, 0) / total;
+
+    res.json({
+      total,
+      avgRating: avgRating.toFixed(1),
+      reviews,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

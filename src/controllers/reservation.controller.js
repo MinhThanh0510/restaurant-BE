@@ -1,47 +1,29 @@
 const Reservation = require("../models/Reservation");
 const Table = require("../models/Table");
-const Menu = require("../models/Menu");
 const Inventory = require("../models/Inventory");
+const Preorder = require("../models/Preorder"); // 🔥 Cần Import Model này vào
 
 exports.createReservation = async (req, res) => {
   try {
-    const {
-      tableId,
-      reservationDate,
-      startTime,
-      numberOfGuests,
-      note,
-      fullName,
-      phone,
-      email,
-      preorderItems,
-    } = req.body;
-
+    const { tableId, reservationDate, startTime, numberOfGuests, note, fullName, phone, email } = req.body;
     const userId = req.user?.id;
 
-    // ===== VALIDATE CƠ BẢN =====
     if (!tableId || !reservationDate || !startTime || !numberOfGuests) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
     const table = await Table.findById(tableId);
-    if (!table) {
-      return res.status(404).json({ message: "Table not found" });
-    }
+    if (!table) return res.status(404).json({ message: "Table not found" });
 
     const guests = Number(numberOfGuests);
     if (guests <= 0 || guests > table.capacity) {
-      return res.status(400).json({
-        message: `Guests must be between 1 and ${table.capacity}`,
-      });
+      return res.status(400).json({ message: `Guests must be between 1 and ${table.capacity}` });
     }
 
-    // ===== TÍNH TOÁN THỜI GIAN =====
     const start = new Date(`${reservationDate}T${startTime}:00`);
     const durationHours = guests > 6 ? 3.5 : 2.5;
     const end = new Date(start.getTime() + durationHours * 60 * 60 * 1000);
 
-    // ===== CHECK BÀN ĐÃ BỊ ĐẶT CHƯA =====
     const conflict = await Reservation.findOne({
       tableId: table._id,
       reservationDate: new Date(reservationDate),
@@ -50,81 +32,10 @@ exports.createReservation = async (req, res) => {
       endTime: { $gt: start },
     });
 
-    if (conflict) {
-      return res.status(400).json({
-        message: "Table already reserved for this time slot",
-      });
-    }
+    if (conflict) return res.status(400).json({ message: "Table already reserved for this time slot" });
 
-    // ===== XỬ LÝ PREORDER VÀ TRỪ KHO (INVENTORY) =====
-    let preorder = [];
-    let preorderTotal = 0;
-
-    if (preorderItems && preorderItems.length > 0) {
-      for (const item of preorderItems) {
-        const menu = await Menu.findById(item.menuId).populate("ingredients.ingredientId");
-
-        if (!menu || !menu.isAvailable) {
-          return res.status(404).json({
-            message: `Menu item with ID ${item.menuId} is not available`,
-          });
-        }
-
-        const subtotal = menu.price * item.quantity;
-        preorderTotal += subtotal;
-
-        if (menu.ingredients && menu.ingredients.length > 0) {
-          for (const ing of menu.ingredients) {
-            if (!ing.ingredientId) {
-              return res.status(500).json({
-                message: `Data error: Ingredient ID missing for menu ${menu.name}`,
-              });
-            }
-
-            const inventoryItem = ing.ingredientId;
-            const requiredQuantity = ing.quantity * item.quantity;
-
-            if (inventoryItem.quantity < requiredQuantity) {
-              return res.status(400).json({
-                message: `Not enough ${inventoryItem.name} in inventory to make ${menu.name}`,
-              });
-            }
-
-            const updatedInventory = await Inventory.findOneAndUpdate(
-              {
-                _id: inventoryItem._id,
-                quantity: { $gte: requiredQuantity }
-              },
-              {
-                $inc: { quantity: -requiredQuantity }
-              },
-              { new: true }
-            );
-
-            if (!updatedInventory) {
-              return res.status(400).json({
-                message: `Concurrency error: Failed to deduct ${inventoryItem.name} from inventory. Please try again.`,
-              });
-            }
-          }
-        }
-
-        preorder.push({
-          menuId: menu._id,
-          quantity: item.quantity,
-          price: menu.price,
-        });
-      }
-    }
-
-    // ===== TẠO ĐƠN ĐẶT BÀN VÀ TÍNH TIỀN =====
     const bookingCode = "BK" + Date.now().toString().slice(-4) + Math.floor(Math.random() * 1000);
-
-    // 🔥 Lấy giá bàn tại thời điểm đặt (nếu ko có mặc định là 0)
     const tablePrice = table.price || 0;
-    
-    // 🔥 Tổng tiền = Tiền đồ ăn + Tiền phụ thu bàn
-    const totalAmount = preorderTotal + tablePrice;
 
     const reservation = await Reservation.create({
       userId,
@@ -136,82 +47,66 @@ exports.createReservation = async (req, res) => {
       endTime: end,
       numberOfGuests: guests,
       note: note || "",
-      preorder,
-      preorderTotal,
-      tablePrice,    // 🔥 Lưu giá bàn
-      totalAmount,   // 🔥 Lưu tổng thanh toán
+      tablePrice,
+      totalAmount: tablePrice, // Mới tạo thì tổng tiền tạm = tiền bàn (tiền món ăn sẽ cập nhật sau)
       status: "pending",
     });
 
-    return res.status(201).json({
-      message: "Reservation created successfully",
-      reservation,
-    });
+    return res.status(201).json({ message: "Reservation created successfully", reservation });
   } catch (error) {
-    console.error("Create Reservation Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
 exports.getMyReservations = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const reservations = await Reservation.find({ userId })
-      // 🔥 Lấy thêm location và price của bàn để hiển thị cho Khách hàng
+    const reservations = await Reservation.find({ userId: req.user.id })
       .populate("tableId", "tableNumber capacity location price")
       .sort({ reservationDate: -1 });
-
-    return res.status(200).json({
-      message: "My reservations",
-      total: reservations.length,
-      reservations,
-    });
+    return res.status(200).json({ total: reservations.length, reservations });
   } catch (error) {
-    console.error("getMyReservations Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
+// ================= CUSTOMER CANCEL (HOÀN KHO NẾU ĐÃ CONFIRM) =================
 exports.cancelReservation = async (req, res) => {
   try {
-    const { id } = req.params;
-    const currentUserId = String(req.user?.id || req.user?._id);
-    const reservation = await Reservation.findById(id);
+    const reservation = await Reservation.findById(req.params.id);
+    if (!reservation) return res.status(404).json({ message: "Reservation not found" });
 
-    if (!reservation) {
-      return res.status(404).json({ message: "Reservation not found" });
+    if (String(reservation.userId) !== String(req.user?.id || req.user?._id)) {
+      return res.status(403).json({ message: "You cannot cancel this reservation" });
     }
+    if (reservation.status === "cancelled") return res.status(400).json({ message: "Already cancelled" });
 
-    const ownerId = String(reservation.userId);
-
-    if (ownerId !== currentUserId) {
-      return res.status(403).json({
-        message: "You cannot cancel this reservation",
+    // 🔥 HOÀN TRẢ KHO (Tìm trong bảng Preorder)
+    if (reservation.status === "confirmed") {
+      const preorderDoc = await Preorder.findOne({ reservationId: reservation._id }).populate({
+        path: "items.menuId",
+        populate: { path: "ingredients.ingredientId" }
       });
-    }
 
-    if (reservation.status === "cancelled") {
-      return res.status(400).json({ message: "Reservation already cancelled" });
+      if (preorderDoc && preorderDoc.items) {
+        for (const item of preorderDoc.items) {
+          const menu = item.menuId;
+          if (menu && menu.ingredients) {
+            for (const ing of menu.ingredients) {
+              if (ing.ingredientId) {
+                const requiredQuantity = ing.quantity * item.quantity;
+                await Inventory.findByIdAndUpdate(ing.ingredientId._id, { $inc: { quantity: requiredQuantity } });
+              }
+            }
+          }
+        }
+      }
     }
 
     reservation.status = "cancelled";
     await reservation.save();
-
-    return res.status(200).json({
-      message: "Reservation cancelled successfully",
-      reservation,
-    });
+    return res.status(200).json({ message: "Reservation cancelled successfully", reservation });
   } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -219,90 +114,108 @@ exports.getAllReservations = async (req, res) => {
   try {
     const reservations = await Reservation.find()
       .populate("userId", "fullName email")
-      // 🔥 Lấy thêm location và price của bàn để hiển thị cho Admin
       .populate("tableId", "tableNumber capacity location price")
       .sort({ reservationDate: -1 });
-
-    return res.status(200).json({
-      message: "All reservations",
-      total: reservations.length,
-      reservations,
-    });
+    return res.status(200).json({ total: reservations.length, reservations });
   } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
 exports.deleteReservation = async (req, res) => {
   try {
-    const { id } = req.params;
-    const currentUserId = String(req.user?.id || req.user?._id);
-    const reservation = await Reservation.findById(id);
-
-    if (!reservation) {
-      return res.status(404).json({ message: "Reservation not found" });
+    const reservation = await Reservation.findById(req.params.id);
+    if (!reservation) return res.status(404).json({ message: "Reservation not found" });
+    if (String(reservation.userId) !== String(req.user?.id || req.user?._id) && req.user?.role !== "admin") {
+      return res.status(403).json({ message: "No permission to delete" });
     }
+    if (reservation.status !== "cancelled") return res.status(400).json({ message: "Only cancelled reservations can be deleted" });
 
-    const ownerId = String(reservation.userId);
-    const userRole = req.user?.role;
-
-    if (ownerId !== currentUserId && userRole !== "admin") {
-      return res.status(403).json({
-        message: "You do not have permission to delete this reservation",
-      });
-    }
-
-    if (reservation.status !== "cancelled") {
-      return res.status(400).json({
-        message: "Only cancelled reservations can be deleted",
-      });
-    }
-
-    await Reservation.findByIdAndDelete(id);
-
-    return res.status(200).json({
-      message: "Reservation history deleted successfully",
-    });
+    await Reservation.findByIdAndDelete(req.params.id);
+    return res.status(200).json({ message: "Reservation deleted successfully" });
   } catch (error) {
-    console.error("Delete Reservation Error:", error);
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
+// ================= ADMIN UPDATE STATUS (XỬ LÝ KHO) =================
 exports.updateReservationStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
     const validStatuses = ["pending", "confirmed", "completed", "cancelled"];
-    if (!validStatuses.includes(status)) {
-      return res.status(400).json({ message: "Trạng thái không hợp lệ" });
-    }
+    if (!validStatuses.includes(status)) return res.status(400).json({ message: "Invalid status" });
 
-    const reservation = await Reservation.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true }
-    );
+    const reservation = await Reservation.findById(id);
+    if (!reservation) return res.status(404).json({ message: "Reservation not found" });
 
-    if (!reservation) {
-      return res.status(404).json({ message: "Không tìm thấy đơn đặt bàn" });
-    }
+    const oldStatus = reservation.status;
 
-    return res.status(200).json({
-      message: "Cập nhật trạng thái thành công",
-      reservation
+    // 🔥 Tìm danh sách món ăn từ bảng Preorder
+    const preorderDoc = await Preorder.findOne({ reservationId: id }).populate({
+      path: "items.menuId",
+      populate: { path: "ingredients.ingredientId" }
     });
+
+    // 🔥 PENDING -> CONFIRMED (TRỪ KHO)
+    if (oldStatus === "pending" && status === "confirmed") {
+      if (preorderDoc && preorderDoc.items) {
+        // 1. Kiểm tra kho trước
+        for (const item of preorderDoc.items) {
+          const menu = item.menuId;
+          if (menu && menu.ingredients) {
+            for (const ing of menu.ingredients) {
+              const inventoryItem = ing.ingredientId;
+              if (!inventoryItem) continue;
+              const requiredQuantity = ing.quantity * item.quantity;
+              
+              if (inventoryItem.quantity < requiredQuantity) {
+                return res.status(400).json({
+                  message: `Cannot confirm! Not enough ${inventoryItem.name} in inventory. Needs ${requiredQuantity}, has ${inventoryItem.quantity}.`
+                });
+              }
+            }
+          }
+        }
+        // 2. Tiến hành trừ kho
+        for (const item of preorderDoc.items) {
+          const menu = item.menuId;
+          if (menu && menu.ingredients) {
+            for (const ing of menu.ingredients) {
+              const inventoryItem = ing.ingredientId;
+              if (inventoryItem) {
+                const requiredQuantity = ing.quantity * item.quantity;
+                await Inventory.findByIdAndUpdate(inventoryItem._id, { $inc: { quantity: -requiredQuantity } });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 🔥 CONFIRMED/COMPLETED -> CANCELLED (HOÀN KHO)
+    if ((oldStatus === "confirmed" || oldStatus === "completed") && status === "cancelled") {
+      if (preorderDoc && preorderDoc.items) {
+        for (const item of preorderDoc.items) {
+          const menu = item.menuId;
+          if (menu && menu.ingredients) {
+            for (const ing of menu.ingredients) {
+              if (ing.ingredientId) {
+                const requiredQuantity = ing.quantity * item.quantity;
+                await Inventory.findByIdAndUpdate(ing.ingredientId._id, { $inc: { quantity: requiredQuantity } });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    reservation.status = status;
+    await reservation.save();
+
+    return res.status(200).json({ message: `Status updated to ${status}`, reservation });
   } catch (error) {
-    return res.status(500).json({
-      message: "Lỗi Server",
-      error: error.message
-    });
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };

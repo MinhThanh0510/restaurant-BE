@@ -11,6 +11,7 @@ router.get("/my", verifyToken, controller.getMyReviews);
 router.delete("/:id", verifyToken, controller.deleteReview);
 
 // ADMIN
-router.put("/hide/:id", verifyToken, authorizeRoles("admin"), controller.hideReview);
+router.get("/admin", verifyToken, authorizeRoles("admin"), controller.getAdminReviews);
+router.put("/:id/toggle-hide", verifyToken, authorizeRoles("admin"), controller.toggleHideReview);
 
 module.exports = router;
