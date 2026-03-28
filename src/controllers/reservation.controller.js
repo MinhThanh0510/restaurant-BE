@@ -1,7 +1,10 @@
 const Reservation = require("../models/Reservation");
 const Table = require("../models/Table");
 const Inventory = require("../models/Inventory");
-const Preorder = require("../models/Preorder"); // 🔥 Cần Import Model này vào
+const Preorder = require("../models/Preorder");
+const paypal = require('@paypal/checkout-server-sdk');
+const { client } = require('../config/paypal');
+const Payment = require("../models/Payment");
 
 exports.createReservation = async (req, res) => {
   try {
@@ -27,7 +30,7 @@ exports.createReservation = async (req, res) => {
     const conflict = await Reservation.findOne({
       tableId: table._id,
       reservationDate: new Date(reservationDate),
-      status: { $in: ["pending", "confirmed"] },
+      status: { $in: ["pending_payment", "paid", "confirmed"] },
       startTime: { $lt: end },
       endTime: { $gt: start },
     });
@@ -48,8 +51,8 @@ exports.createReservation = async (req, res) => {
       numberOfGuests: guests,
       note: note || "",
       tablePrice,
-      totalAmount: tablePrice, // Mới tạo thì tổng tiền tạm = tiền bàn (tiền món ăn sẽ cập nhật sau)
-      status: "pending",
+      totalAmount: tablePrice,
+      status: "pending_payment",
     });
 
     return res.status(201).json({ message: "Reservation created successfully", reservation });
@@ -69,7 +72,7 @@ exports.getMyReservations = async (req, res) => {
   }
 };
 
-// ================= CUSTOMER CANCEL (HOÀN KHO NẾU ĐÃ CONFIRM) =================
+// ================= USER REQUEST CANCEL (CHỈ GỬI YÊU CẦU) =================
 exports.cancelReservation = async (req, res) => {
   try {
     const reservation = await Reservation.findById(req.params.id);
@@ -78,33 +81,20 @@ exports.cancelReservation = async (req, res) => {
     if (String(reservation.userId) !== String(req.user?.id || req.user?._id)) {
       return res.status(403).json({ message: "You cannot cancel this reservation" });
     }
-    if (reservation.status === "cancelled") return res.status(400).json({ message: "Already cancelled" });
 
-    // 🔥 HOÀN TRẢ KHO (Tìm trong bảng Preorder)
-    if (reservation.status === "confirmed") {
-      const preorderDoc = await Preorder.findOne({ reservationId: reservation._id }).populate({
-        path: "items.menuId",
-        populate: { path: "ingredients.ingredientId" }
-      });
-
-      if (preorderDoc && preorderDoc.items) {
-        for (const item of preorderDoc.items) {
-          const menu = item.menuId;
-          if (menu && menu.ingredients) {
-            for (const ing of menu.ingredients) {
-              if (ing.ingredientId) {
-                const requiredQuantity = ing.quantity * item.quantity;
-                await Inventory.findByIdAndUpdate(ing.ingredientId._id, { $inc: { quantity: requiredQuantity } });
-              }
-            }
-          }
-        }
-      }
+    const notAllowed = ["cancelled", "completed", "cancel_request"];
+    if (notAllowed.includes(reservation.status)) {
+      return res.status(400).json({ message: `Reservation is already ${reservation.status}` });
     }
 
-    reservation.status = "cancelled";
+    // Chuyển sang trạng thái chờ Admin duyệt hủy
+    reservation.status = "cancel_request";
     await reservation.save();
-    return res.status(200).json({ message: "Reservation cancelled successfully", reservation });
+
+    return res.status(200).json({
+      message: "Cancellation request sent successfully. Waiting for Admin to process refund.",
+      reservation
+    });
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -138,13 +128,13 @@ exports.deleteReservation = async (req, res) => {
   }
 };
 
-// ================= ADMIN UPDATE STATUS (XỬ LÝ KHO) =================
+// ================= ADMIN UPDATE STATUS (XỬ LÝ KHO & AUTO REFUND) =================
 exports.updateReservationStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ["pending", "confirmed", "completed", "cancelled"];
+    const validStatuses = ["pending_payment", "paid", "confirmed", "completed", "cancelled", "cancel_request"];
     if (!validStatuses.includes(status)) return res.status(400).json({ message: "Invalid status" });
 
     const reservation = await Reservation.findById(id);
@@ -152,16 +142,74 @@ exports.updateReservationStatus = async (req, res) => {
 
     const oldStatus = reservation.status;
 
-    // 🔥 Tìm danh sách món ăn từ bảng Preorder
-    const preorderDoc = await Preorder.findOne({ reservationId: id }).populate({
-      path: "items.menuId",
-      populate: { path: "ingredients.ingredientId" }
-    });
+    // 🔥 TRƯỜNG HỢP 1: ADMIN DUYỆT HỦY (Xử lý Refund & Hoàn kho)
+    if (status === "cancelled" && oldStatus !== "cancelled") {
 
-    // 🔥 PENDING -> CONFIRMED (TRỪ KHO)
-    if (oldStatus === "pending" && status === "confirmed") {
+      // A. XỬ LÝ HOÀN TIỀN PAYPAL DỰA TRÊN THỜI GIAN
+      if (oldStatus === "paid" || oldStatus === "confirmed" || oldStatus === "cancel_request") {
+        const paymentDoc = await Payment.findOne({ reservationId: reservation._id, status: "paid" });
+
+        if (paymentDoc && paymentDoc.transactionId) {
+          const now = new Date();
+          const startTime = new Date(reservation.startTime);
+          const diffHours = (startTime - now) / (1000 * 60 * 60);
+
+          let refundPercentage = 0;
+          if (diffHours >= 48) refundPercentage = 1.0; // Trước 2 ngày: 100%
+          else if (diffHours >= 24) refundPercentage = 0.8; // Trước 1 ngày: 80%
+          else refundPercentage = 0; // Dưới 24h: 0%
+
+          const refundAmount = paymentDoc.amount * refundPercentage;
+
+          if (refundAmount > 0) {
+            try {
+              const request = new paypal.payments.CapturesRefundRequest(paymentDoc.transactionId);
+              request.requestBody({
+                amount: { value: refundAmount.toFixed(2), currency_code: "USD" }
+              });
+              await client.execute(request);
+              paymentDoc.status = "refunded";
+              await paymentDoc.save();
+            } catch (refundError) {
+              console.error("PayPal Refund Error:", refundError);
+              // Không return lỗi ở đây để Admin vẫn có thể hủy đơn nếu PayPal gặp sự cố
+            }
+          }
+        }
+      }
+
+      // B. HOÀN TRẢ KHO (Nếu đơn cũ đã ở trạng thái đã duyệt - confirmed)
+      if (oldStatus === "confirmed") {
+        const preorderDoc = await Preorder.findOne({ reservationId: id }).populate({
+          path: "items.menuId",
+          populate: { path: "ingredients.ingredientId" }
+        });
+
+        if (preorderDoc && preorderDoc.items) {
+          for (const item of preorderDoc.items) {
+            const menu = item.menuId;
+            if (menu && menu.ingredients) {
+              for (const ing of menu.ingredients) {
+                if (ing.ingredientId) {
+                  const requiredQuantity = ing.quantity * item.quantity;
+                  await Inventory.findByIdAndUpdate(ing.ingredientId._id, { $inc: { quantity: requiredQuantity } });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // 🔥 TRƯỜNG HỢP 2: ADMIN DUYỆT ĐƠN (Chuyển sang confirmed -> TRỪ KHO)
+    if ((oldStatus === "pending_payment" || oldStatus === "paid") && status === "confirmed") {
+      const preorderDoc = await Preorder.findOne({ reservationId: id }).populate({
+        path: "items.menuId",
+        populate: { path: "ingredients.ingredientId" }
+      });
+
       if (preorderDoc && preorderDoc.items) {
-        // 1. Kiểm tra kho trước
+        // 1. Kiểm tra kho
         for (const item of preorderDoc.items) {
           const menu = item.menuId;
           if (menu && menu.ingredients) {
@@ -169,16 +217,15 @@ exports.updateReservationStatus = async (req, res) => {
               const inventoryItem = ing.ingredientId;
               if (!inventoryItem) continue;
               const requiredQuantity = ing.quantity * item.quantity;
-              
               if (inventoryItem.quantity < requiredQuantity) {
                 return res.status(400).json({
-                  message: `Cannot confirm! Not enough ${inventoryItem.name} in inventory. Needs ${requiredQuantity}, has ${inventoryItem.quantity}.`
+                  message: `Cannot confirm! Not enough ${inventoryItem.name} in stock.`
                 });
               }
             }
           }
         }
-        // 2. Tiến hành trừ kho
+        // 2. Trừ kho
         for (const item of preorderDoc.items) {
           const menu = item.menuId;
           if (menu && menu.ingredients) {
@@ -194,27 +241,10 @@ exports.updateReservationStatus = async (req, res) => {
       }
     }
 
-    // 🔥 CONFIRMED/COMPLETED -> CANCELLED (HOÀN KHO)
-    if ((oldStatus === "confirmed" || oldStatus === "completed") && status === "cancelled") {
-      if (preorderDoc && preorderDoc.items) {
-        for (const item of preorderDoc.items) {
-          const menu = item.menuId;
-          if (menu && menu.ingredients) {
-            for (const ing of menu.ingredients) {
-              if (ing.ingredientId) {
-                const requiredQuantity = ing.quantity * item.quantity;
-                await Inventory.findByIdAndUpdate(ing.ingredientId._id, { $inc: { quantity: requiredQuantity } });
-              }
-            }
-          }
-        }
-      }
-    }
-
     reservation.status = status;
     await reservation.save();
 
-    return res.status(200).json({ message: `Status updated to ${status}`, reservation });
+    return res.status(200).json({ message: `Status updated to ${status} successfully`, reservation });
   } catch (error) {
     return res.status(500).json({ message: "Server error", error: error.message });
   }

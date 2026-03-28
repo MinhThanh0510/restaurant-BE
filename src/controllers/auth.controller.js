@@ -1,8 +1,8 @@
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto"); // 🔥 Thêm thư viện này
+const crypto = require("crypto");
 const User = require("../models/User");
-const sendEmail = require("../utils/sendEmail"); // 🔥 Thêm hàm gửi mail
+const sendEmail = require("../utils/sendEmail");
 
 
 // ================= REGISTER =================
@@ -10,7 +10,6 @@ exports.register = async (req, res) => {
   try {
     const { fullName, email, password, phone } = req.body;
 
-    // Check email
     const existingEmail = await User.findOne({ email });
     if (existingEmail) {
       return res.status(400).json({
@@ -18,17 +17,15 @@ exports.register = async (req, res) => {
       });
     }
 
-    // Check phone (NẾU người dùng CÓ nhập số điện thoại)
     if (phone) {
       const existingPhone = await User.findOne({ phone });
       if (existingPhone) {
         return res.status(400).json({
           message: "Phone Number already exists",
         });
-      } 
+      }
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
@@ -56,35 +53,26 @@ exports.register = async (req, res) => {
   }
 };
 
-// ================= LOGIN =================
+// ================= LOGIN (Đã tối ưu select password) =================
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({
-        message: "Email or password is invalid",
-      });
+    // Phải thêm .select("+password") vì trong Model mình đã ẩn nó đi để bảo mật
+    const user = await User.findOne({ email }).select("+password");
+
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(400).json({ message: "Email or password is invalid" });
     }
 
     if (!user.isActive) {
-      return res.status(403).json({
-        message: "Account is disabled",
-      });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({
-        message: "Email or password is invalid",
-      });
+      return res.status(403).json({ message: "Account is disabled" });
     }
 
     const accessToken = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_ACCESS_SECRET,
-      { expiresIn: "15m" }
+      { expiresIn: "1h" } // Tăng lên 1h cho đỡ bị logout liên tục khi test
     );
 
     const refreshToken = jwt.sign(
@@ -97,18 +85,15 @@ exports.login = async (req, res) => {
       message: "Login successfully",
       accessToken,
       refreshToken,
-    user: {
-      id: user._id,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-    },
-});
-  } catch (error) {
-    return res.status(500).json({
-      message: "Server error",
-      error: error.message,
+      user: {
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      },
     });
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
@@ -183,7 +168,7 @@ exports.resetPassword = async (req, res) => {
 
     // 3. Đổi mật khẩu mới
     user.password = await bcrypt.hash(req.body.password, 10);
-    
+
     // 4. Xóa Token cũ đi (Vì đã dùng xong)
     user.resetPasswordToken = undefined;
     user.resetPasswordExpire = undefined;

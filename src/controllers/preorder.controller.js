@@ -15,6 +15,11 @@ exports.createPreorder = async (req, res) => {
     const reservation = await Reservation.findById(reservationId);
     if (!reservation) return res.status(404).json({ message: "Reservation not found" });
 
+    // 🔥 KIỂM TRA TRẠNG THÁI: Chỉ cho phép đặt món khi đơn đang ở trạng thái chờ thanh toán
+    if (reservation.status !== "pending_payment") {
+      return res.status(400).json({ message: "Cannot modify preorder after payment or confirmation" });
+    }
+
     const currentUserId = String(req.user?.id || req.user?._id);
     const ownerId = String(reservation.userId);
 
@@ -50,7 +55,6 @@ exports.createPreorder = async (req, res) => {
         if (inventoryItem.quantity < required) {
           return res.status(400).json({ message: `Not enough ${inventoryItem.name} in stock` });
         }
-        // ĐÃ XÓA LỆNH TRỪ KHO VÀ SAVE Ở ĐÂY!
       }
 
       orderItems.push({
@@ -66,7 +70,15 @@ exports.createPreorder = async (req, res) => {
       totalAmount,
     });
 
-    res.status(201).json({ message: "Preorder created successfully", preorder });
+    // 🔥 CẬP NHẬT QUAN TRỌNG: Cộng dồn tiền món ăn vào tổng tiền của Đơn đặt bàn
+    reservation.totalAmount += totalAmount;
+    await reservation.save();
+
+    res.status(201).json({
+      message: "Preorder created successfully",
+      preorder,
+      newTotalReservationAmount: reservation.totalAmount // Trả về để Frontend lấy đem đi gọi PayPal
+    });
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
@@ -80,9 +92,9 @@ exports.getPreorderByReservation = async (req, res) => {
       .populate("items.menuId", "name price image");
 
     if (!preorder) {
-      return res.status(200).json({ 
+      return res.status(200).json({
         message: "No preorder found for this reservation",
-        preorder: { items: [], totalAmount: 0 } 
+        preorder: { items: [], totalAmount: 0 }
       });
     }
     res.status(200).json({ preorder });

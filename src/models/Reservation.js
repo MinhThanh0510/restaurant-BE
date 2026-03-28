@@ -105,11 +105,17 @@ const reservationSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // 🔥 LƯU ID THANH TOÁN ĐỂ TIỆN REFUND/KIỂM TRA
+    paymentId: {
+      type: String,
+    },
+
     // ===== STATUS =====
     status: {
       type: String,
-      enum: ["pending", "confirmed", "cancelled", "completed"],
-      default: "pending",
+      // 🔥 ĐÃ CẬP NHẬT: Thêm cancel_request vào enum
+      enum: ["confirmed", "cancelled", "completed", "pending_payment", "paid", "cancel_request"],
+      default: "pending_payment",
     },
   },
   {

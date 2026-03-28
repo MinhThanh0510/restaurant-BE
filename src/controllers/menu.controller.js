@@ -73,7 +73,7 @@ exports.getMenuByCategory = async (req, res) => {
       categoryId,
       isAvailable: true,
     })
-    .select("name price image isAvailable ingredients");
+      .select("name price image isAvailable ingredients");
 
     res.status(200).json({
       category: category.name,
@@ -131,7 +131,6 @@ exports.getMenuDetail = async (req, res) => {
 // ================= CREATE MENU (ADMIN) =================
 exports.createMenu = async (req, res) => {
   try {
-    // 🔥 FIX: Thêm ingredients và isAvailable vào mảng bóc tách
     const { name, description, price, image, categoryId, ingredients, isAvailable } = req.body;
 
     if (!name || !price || !categoryId) {
