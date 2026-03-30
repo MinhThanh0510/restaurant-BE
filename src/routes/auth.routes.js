@@ -11,7 +11,7 @@ const authController = require("../controllers/auth.controller");
 
 /**
  * @swagger
- * auth/register:
+ * /auth/register:
  *   post:
  *     summary: Register a new user account
  *     tags: [Auth]
