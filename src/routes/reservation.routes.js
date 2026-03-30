@@ -25,14 +25,25 @@ const { verifyToken, authorizeRoles } = require("../middlewares/auth.middleware"
  *           schema:
  *             type: object
  *             required:
+ *               - fullName
+ *               - phone
  *               - tableId
  *               - reservationDate
  *               - startTime
  *               - numberOfGuests
  *             properties:
+ *               fullName:
+ *                 type: string
+ *                 example: "Nguyễn Minh Thành"
+ *               phone:
+ *                 type: string
+ *                 example: "0901234567"
+ *               email:
+ *                 type: string
+ *                 example: "thanh@hutech.edu.vn"
  *               tableId:
  *                 type: string
- *                 example: "60d21b4667d0d8992e610c85"
+ *                 example: "69a6a2dc74520b8058b77835"
  *               reservationDate:
  *                 type: string
  *                 format: date
@@ -40,15 +51,43 @@ const { verifyToken, authorizeRoles } = require("../middlewares/auth.middleware"
  *               startTime:
  *                 type: string
  *                 example: "18:30"
+ *               endTime:
+ *                 type: string
+ *                 example: "20:30"
  *               numberOfGuests:
  *                 type: number
+ *                 minimum: 1
  *                 example: 4
  *               note:
  *                 type: string
  *                 example: "Window seat please"
+ *               preorder:
+ *                 type: array
+ *                 description: List of pre-ordered menu items
+ *                 items:
+ *                   type: object
+ *                   required:
+ *                     - menuId
+ *                     - quantity
+ *                     - price
+ *                   properties:
+ *                     menuId:
+ *                       type: string
+ *                       example: "69be964f8f544381d0d48cec"
+ *                     quantity:
+ *                       type: number
+ *                       minimum: 1
+ *                       example: 1
+ *                     price:
+ *                       type: number
+ *                       example: 7
  *     responses:
  *       201:
  *         description: Reservation created successfully
+ *       400:
+ *         description: Bad Request (Missing required fields)
+ *       401:
+ *         description: Unauthorized
  */
 router.post("/", verifyToken, authorizeRoles("customer", "admin"), reservationController.createReservation);
 
